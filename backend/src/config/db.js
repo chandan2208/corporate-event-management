@@ -18,7 +18,10 @@ const { Pool } = require('pg');
  * the URL's own `sslmode` parameter:
  *   - Render *internal* URL (same region):     no sslmode needed
  *   - Render *external* URL / Neon:            ?sslmode=require
- *   - Supabase (its own CA, not in Node's trust store): ?sslmode=no-verify
+ *   - Supabase (its own CA, not in Node's trust store), Session pooler:
+ *       ?sslmode=verify-full&sslrootcert=certs/supabase-prod-ca-2021.crt
+ *     (path is relative to backend/, the working directory on Render; the
+ *     file is Supabase's PUBLIC root CA, safe to commit)
  *
  * The discrete DB_HOST/DB_PORT/... variables are still supported as a
  * fallback so existing local .env files keep working unchanged; DB_SSL=true
