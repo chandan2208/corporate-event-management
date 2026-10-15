@@ -27,8 +27,11 @@ const { pool } = require('./src/config/db');
 const { cleanupStaleCodes } = require('./src/services/emailVerification.service');
 
 const PORT = process.env.PORT || 5000;
+// Optional bind address, e.g. HOST=127.0.0.1 for local development. Unset
+// (as on Render) keeps the default of listening on all interfaces.
+const HOST = process.env.HOST || undefined;
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, HOST, () => {
   console.log(`Backend server running on http://localhost:${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/api/health`);
 });
