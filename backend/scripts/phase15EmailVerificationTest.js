@@ -22,6 +22,7 @@
  * Run with: npm run test:phase15
  */
 
+process.env.TZ = 'UTC'; // match server.js
 require('dotenv').config();
 const path = require('path');
 const fs = require('fs');
@@ -31,6 +32,7 @@ const { spawn, spawnSync } = require('child_process');
 const { Pool } = require('pg');
 const jwt = require('jsonwebtoken');
 const { startMailSink } = require('./lib/testMailSink');
+const { buildConnectionConfig } = require('../src/config/db');
 
 const BACKEND_DIR = path.join(__dirname, '..');
 const FRONTEND_DIR = path.join(BACKEND_DIR, '..', 'frontend');
@@ -40,17 +42,17 @@ const BASE_URL = `http://127.0.0.1:${API_PORT}/api`;
 const RUN_ID = Date.now();
 const SMTP_USER = 'p15-smtp-user';
 const SMTP_PASS = `P15-smtp-secret-${crypto.randomBytes(9).toString('hex')}`;
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@corporate-event.com';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin@12345';
+// Same account `npm run seed:admin` creates — never hardcode credentials.
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
+  console.error('Set ADMIN_EMAIL and ADMIN_PASSWORD (the seeded admin account) before running this suite.');
+  process.exit(1);
+}
 const PASSWORD = 'VerifyMe123';
 
-const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-});
+// Same connection settings as the app itself (DATABASE_URL or DB_*).
+const pool = new Pool(buildConnectionConfig());
 const db = (text, params) => pool.query(text, params);
 
 // ---------------------------------------------------------------------------

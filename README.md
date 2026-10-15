@@ -1642,7 +1642,8 @@ development it starts with a loud warning.
 
 **Render setup:** backend service → Environment → add the `EMAIL_*`
 variables → redeploy → run `npm run migrate:up` (adds migration
-`1700000000010`). Never put these in GitHub or in the frontend service.
+`1700000000011`, plus `1700000000012` which enables RLS on the new table).
+Never put these in GitHub or in the frontend service.
 
 ### Email content
 
@@ -1663,7 +1664,7 @@ is cleared, and the response says
 **Resend code** once delivery works. Failures are logged as one sanitized
 line with a masked address — never the body or credentials.
 
-### Existing accounts (migration `1700000000010_add-email-verification`)
+### Existing accounts (migration `1700000000011_add-email-verification`)
 
 - The migration only **adds** columns/tables: names, emails, password
   hashes, roles, departments/designations, registrations, attendance,
@@ -1716,7 +1717,7 @@ built frontend for email settings.
 | `npm run test:qr` | extracted ZIP | pass |
 | Backend syntax check (`node --check`, 94 files) | extracted ZIP | 0 errors |
 | Frontend `npm run build` | extracted ZIP | success, 728 modules; `oxlint`: no new warnings (same 5 pre-existing) |
-| Migrations | fresh DB | 10/10 applied in order, re-run is a no-op, `migrate:down`/`up` of 1700000000010 verified; existing user rows byte-identical before/after (md5 fingerprint) |
+| Migrations | fresh DB | 10/10 applied in order, re-run is a no-op, `migrate:down`/`up` of the email-verification migration (then numbered 010, now 011) verified; existing user rows byte-identical before/after (md5 fingerprint) |
 | Browser walk-through (Playwright, Chromium) | built frontend + backend + SMTP capture | register → verify page → wrong code → cooldown → paste code → verified → login → dashboard; unverified-login panel → Resend → verify page; direct visit |
 
 Required checks → suite sections (all in the 170-check run):

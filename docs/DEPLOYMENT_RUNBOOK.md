@@ -19,10 +19,10 @@ Do these **in this order** so existing employees are never locked out without a 
 1. Choose a provider. Render **free** web services block outbound SMTP on ports 25/465/587 (since Sept 2025): use `EMAIL_PROVIDER=brevo` + `EMAIL_API_KEY`, or an SMTP relay on port **2525**. Paid instances can use any SMTP port.
 2. Verify the sender address/domain with the provider; set `EMAIL_FROM` to it.
 3. Render → backend service → **Environment**: add `EMAIL_PROVIDER`, `EMAIL_FROM` and either `EMAIL_HOST`/`EMAIL_PORT`/`EMAIL_SECURE`/`EMAIL_USER`/`EMAIL_PASSWORD` (smtp) or `EMAIL_API_KEY` (brevo). Optionally `EMAIL_VERIFICATION_SECRET`. **Never** in GitHub, never in the frontend service. With `NODE_ENV=production` the backend refuses to start if email is not configured.
-4. Deploy the backend, then run `npm run migrate:up` (applies `1700000000010_add-email-verification`: admins become verified, existing employees must verify once; no other data changes).
+4. Deploy the backend, then run `npm run migrate:up` (applies `1700000000011_add-email-verification` and `1700000000012_enable-rls-email-verification-codes`: admins become verified, existing employees must verify once; no other data changes).
 5. Redeploy the frontend (new `/verify-email` page).
 6. Smoke test: register a real address you control → receive the code → verify → log in. Log in as admin (must work without a code). Check the backend logs contain no codes.
-7. Tell existing employees they'll be asked to verify their email once at next sign-in. For anyone whose mailbox can't receive the code: `npm run verify:user -- <email>` from a Render shell.
+7. Tell existing employees they'll be asked to verify their email once at next sign-in. For anyone whose mailbox can't receive the code: `npm run verify:user -- <email>` from a local checkout whose `backend/.env` `DATABASE_URL` points at the production database (Render's Shell is not available on the free instance type).
 
 Rollback: `npm run migrate:down` (drops `email_verification_codes` and the two `users` columns) and redeploy the previous backend/frontend.
 
@@ -147,7 +147,7 @@ Production now uses Supabase PostgreSQL.
 | Setting | Value |
 |---|---|
 | Root Directory | `backend` |
-| Build Command | First deploy: `npm ci && npm run migrate:up && npm run seed:admin`. After the admin account exists: `npm ci && npm run migrate:up` (then remove `ADMIN_PASSWORD` from Render). |
+| Build Command | `npm install && npm run migrate:up` — never add `seed:admin` here. Seed the admin ONCE from a local checkout whose `backend/.env` `DATABASE_URL` is the Supabase URL (`npm run seed:admin`); `ADMIN_*` variables are then not needed on Render at all. |
 | Start Command | `npm start` |
 | Health Check Path | `/api/health` (returns 503 when the database is unreachable) |
 
@@ -160,13 +160,16 @@ Production now uses Supabase PostgreSQL.
 | `NODE_ENV` | `production` |
 | `CLIENT_URL` | `https://corporate-event-management-1.onrender.com` (comma-separate extra origins) |
 | `JWT_SECRET`, `JWT_REFRESH_SECRET` | long random strings |
-| `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | initial admin account |
+| `EMAIL_PROVIDER` | `brevo` (Render free blocks SMTP ports 25/465/587) |
+| `EMAIL_API_KEY` | Brevo API key (`xkeysib-…`) |
+| `EMAIL_FROM` | `Corporate Event Management <you@verified-sender>` — a sender verified in Brevo |
 
 `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD` are ignored when
 `DATABASE_URL` is set and can be removed.
 
 **Row Level Security.** Migration `1700000000010` enables RLS (no policies)
-on every table, so Supabase's Data API (anon/authenticated keys) can read
+on every table (`1700000000012` does the same for the Phase 15
+`email_verification_codes` table), so Supabase's Data API (anon/authenticated keys) can read
 nothing. The backend connects as the table owner and is unaffected.
 
 **Verify after deploy**
