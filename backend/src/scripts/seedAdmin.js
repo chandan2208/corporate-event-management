@@ -15,23 +15,45 @@
 require('dotenv').config();
 
 const { hashPassword } = require('../utils/password');
+const { registerSchema } = require('../validators/auth.validator');
 const userModel = require('../models/user.model');
 const { pool } = require('../config/db');
 
+// The exact placeholder shipped in .env.example — never a real password.
+const PLACEHOLDER_PASSWORD = 'change_this_before_seeding';
+
 const run = async () => {
-  const name = process.env.ADMIN_NAME;
-  const email = process.env.ADMIN_EMAIL;
+  const name = process.env.ADMIN_NAME?.trim();
+  const rawEmail = process.env.ADMIN_EMAIL;
   const password = process.env.ADMIN_PASSWORD;
 
-  if (!name || !email || !password) {
+  if (!name || !rawEmail || !password) {
     console.error(
       'Missing ADMIN_NAME, ADMIN_EMAIL, or ADMIN_PASSWORD in .env — cannot seed admin.'
     );
     process.exit(1);
   }
 
-  if (password.length < 8) {
-    console.error('ADMIN_PASSWORD must be at least 8 characters.');
+  // Normalize exactly like the register/login validators do (trim +
+  // lowercase). Without this, an ADMIN_EMAIL with any capital letter was
+  // stored as-is, but login looks emails up lowercased — the admin could
+  // never log in, and every later seed run hit a unique-violation.
+  const emailCheck = registerSchema.shape.email.safeParse(rawEmail);
+  if (!emailCheck.success) {
+    console.error('ADMIN_EMAIL is not a valid email address.');
+    process.exit(1);
+  }
+  const email = emailCheck.data;
+
+  if (password === PLACEHOLDER_PASSWORD) {
+    console.error('ADMIN_PASSWORD still holds the .env.example placeholder — set a real password.');
+    process.exit(1);
+  }
+
+  // Same password policy every other account must meet.
+  const passwordCheck = registerSchema.shape.password.safeParse(password);
+  if (!passwordCheck.success) {
+    console.error(`ADMIN_PASSWORD rejected: ${passwordCheck.error.issues.map((i) => i.message).join('; ')}`);
     process.exit(1);
   }
 
