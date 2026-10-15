@@ -6,7 +6,6 @@ import EmptyState from '../../components/EmptyState';
 import Pagination from '../../components/Pagination';
 import ConfirmModal from '../../components/ConfirmModal';
 import QrModal from '../../components/QrModal';
-import StatusBadge from '../../components/StatusBadge';
 import { listMyRegistrations, cancelRegistration } from '../../api/registrationsApi';
 import { useToast } from '../../context/ToastContext';
 

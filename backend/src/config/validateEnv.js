@@ -18,16 +18,13 @@
  * their absence safely.
  */
 
-const REQUIRED_VARS = [
-  'DB_HOST',
-  'DB_PORT',
-  'DB_NAME',
-  'DB_USER',
-  'DB_PASSWORD',
-  'JWT_SECRET',
-  'JWT_REFRESH_SECRET',
-  'CLIENT_URL',
-];
+const REQUIRED_VARS = ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'CLIENT_URL'];
+
+// The database can be configured EITHER by a single DATABASE_URL (preferred,
+// see src/config/db.js) OR by the full set of discrete DB_* variables.
+const DISCRETE_DB_VARS = ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'];
+
+const isSet = (name) => Boolean(process.env[name]) && process.env[name].trim() !== '';
 
 /**
  * Development-only fallback values that must NEVER silently carry over
@@ -40,11 +37,19 @@ const KNOWN_PLACEHOLDER_VALUES = {
   JWT_SECRET: 'replace_this_with_a_long_random_string',
   JWT_REFRESH_SECRET: 'replace_this_with_another_long_random_string',
   DB_PASSWORD: 'your_db_password',
+  DATABASE_URL: 'postgres://postgres:your_db_password@localhost:5432/corporate_event_db',
   ADMIN_PASSWORD: 'change_this_before_seeding',
 };
 
 const validateEnv = () => {
-  const missing = REQUIRED_VARS.filter((name) => !process.env[name] || process.env[name].trim() === '');
+  const missing = REQUIRED_VARS.filter((name) => !isSet(name));
+
+  if (!isSet('DATABASE_URL')) {
+    const missingDbVars = DISCRETE_DB_VARS.filter((name) => !isSet(name));
+    if (missingDbVars.length > 0) {
+      missing.push(`DATABASE_URL (or all of: ${DISCRETE_DB_VARS.join(', ')} — missing ${missingDbVars.join(', ')})`);
+    }
+  }
 
   if (missing.length > 0) {
     console.error('\nFATAL: missing required environment variable(s):');

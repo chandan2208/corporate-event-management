@@ -9,6 +9,14 @@
  * All actual app configuration lives in src/app.js.
  */
 
+// Pin the process timezone to UTC before anything touches a Date. `pg`
+// parses DATE columns (events.event_date) as LOCAL midnight, and the event
+// service turns that back into YYYY-MM-DD via toISOString() — on a machine
+// east of UTC (e.g. IST, +05:30) that shifts every event date back one
+// day, so valid updates failed "deadline must be before event start".
+// Render already runs in UTC; this makes every environment behave the same.
+process.env.TZ = 'UTC';
+
 require('dotenv').config();
 
 const validateEnv = require('./src/config/validateEnv');

@@ -17,18 +17,15 @@
  * Run with: npm run test:phase13
  */
 
+process.env.TZ = 'UTC'; // match server.js — date checks below assume UTC
 require('dotenv').config();
 const { Pool } = require('pg');
+const { buildConnectionConfig } = require('../src/config/db');
 
-const BASE_URL = 'http://localhost:5000/api';
+const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:5000/api';
 const RUN_ID = Date.now();
-const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-});
+// Same connection settings as the app itself (DATABASE_URL or DB_*).
+const pool = new Pool(buildConnectionConfig());
 
 let passCount = 0;
 let failCount = 0;
@@ -129,8 +126,13 @@ async function run() {
   // ======================================================================
   // SETUP: admin + two employees for the whole suite
   // ======================================================================
-  const ADMIN_EMAIL = 'admin@corporate-event.com';
-  const ADMIN_PASSWORD = 'Admin@12345';
+  // Same account `npm run seed:admin` creates — never hardcode credentials.
+  const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+  const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+  if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
+    console.error('Set ADMIN_EMAIL and ADMIN_PASSWORD (the seeded admin account) before running this suite.');
+    process.exit(1);
+  }
   let adminToken = await login(ADMIN_EMAIL, ADMIN_PASSWORD);
 
   const empAEmail = `p13_empa_${RUN_ID}@example.com`;
@@ -876,10 +878,13 @@ async function run() {
 
     const badOrigin = await fetch(`${BASE_URL}/health`, { headers: { Origin: 'https://evil-attacker.example' } });
     const legitOrigin = await fetch(`${BASE_URL}/health`, { headers: { Origin: 'http://localhost:5173' } });
+    // CLIENT_URL is an allow-list: a listed origin is echoed back, any other
+    // origin gets no Access-Control-Allow-Origin header at all.
     check(
       '16-SecurityRegression',
       'CORS does not reflect arbitrary origins back (fixed allow-list)',
-      badOrigin.headers.get('access-control-allow-origin') === legitOrigin.headers.get('access-control-allow-origin')
+      badOrigin.headers.get('access-control-allow-origin') === null &&
+        legitOrigin.headers.get('access-control-allow-origin') === 'http://localhost:5173'
     );
 
     const prodRes = await api('GET', '/events/00000000-0000-0000-0000-000000000000', { token: adminToken });

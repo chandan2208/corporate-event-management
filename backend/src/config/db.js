@@ -8,13 +8,43 @@
 
 const { Pool } = require('pg');
 
+/**
+ * Builds the connection settings from the environment.
+ *
+ * DATABASE_URL (a single connection string, exactly what Render, Supabase
+ * and Neon all hand you) is preferred — it's the same variable
+ * node-pg-migrate already uses, so the app and its migrations can no
+ * longer silently point at two different databases. SSL is controlled by
+ * the URL's own `sslmode` parameter:
+ *   - Render *internal* URL (same region):     no sslmode needed
+ *   - Render *external* URL / Neon:            ?sslmode=require
+ *   - Supabase (its own CA, not in Node's trust store): ?sslmode=no-verify
+ *
+ * The discrete DB_HOST/DB_PORT/... variables are still supported as a
+ * fallback so existing local .env files keep working unchanged; DB_SSL=true
+ * enables (non-verifying) SSL for that mode.
+ *
+ * Exported so scripts that need their own Pool (e.g. the Phase 13 test
+ * suite) connect exactly the same way the app does.
+ */
+const buildConnectionConfig = () => {
+  if (process.env.DATABASE_URL && process.env.DATABASE_URL.trim() !== '') {
+    return { connectionString: process.env.DATABASE_URL.trim() };
+  }
+
+  return {
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
+    database: process.env.DB_NAME,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    ...(process.env.DB_SSL === 'true' && { ssl: { rejectUnauthorized: false } }),
+  };
+};
+
 const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  max: 20, // max number of clients in the pool
+  ...buildConnectionConfig(),
+  max: parseInt(process.env.DB_POOL_MAX, 10) || 10, // free-tier Postgres plans cap total connections
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
 });
@@ -84,6 +114,7 @@ const checkConnection = async () => {
 };
 
 module.exports = {
+  buildConnectionConfig,
   pool,
   query,
   withTransaction,
