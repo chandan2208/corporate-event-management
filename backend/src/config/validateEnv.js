@@ -43,6 +43,31 @@ const KNOWN_PLACEHOLDER_VALUES = {
   ADMIN_PASSWORD: 'change_this_before_seeding',
 };
 
+/**
+ * Phase 15: email delivery is required for new employees to verify their
+ * accounts. In production a missing email configuration is a fatal
+ * misconfiguration (every new registration would be stuck unverified). In
+ * development it's a loud warning instead, so the rest of the app can
+ * still be worked on without an SMTP server.
+ */
+const validateEmailConfig = () => {
+  // Lazy require keeps this module dependency-free for every other check.
+  const { getMissingEmailConfig } = require('../services/email.service');
+  const missingEmail = getMissingEmailConfig();
+  if (missingEmail.length === 0) return;
+
+  if (process.env.NODE_ENV === 'production') {
+    console.error('\nFATAL: email verification is enabled but email delivery is not configured:');
+    missingEmail.forEach((name) => console.error(`  - ${name}`));
+    console.error('\nSet these as environment variables (see .env.example). Refusing to start.\n');
+    process.exit(1);
+  }
+
+  console.warn('\nWARNING: email delivery is not configured — verification codes cannot be sent.');
+  missingEmail.forEach((name) => console.warn(`  - missing ${name}`));
+  console.warn('New registrations will stay unverified until this is set (see .env.example).\n');
+};
+
 const validateEnv = () => {
   const missing = REQUIRED_VARS.filter((name) => !process.env[name] || process.env[name].trim() === '');
 
@@ -67,6 +92,8 @@ const validateEnv = () => {
       process.exit(1);
     }
   }
+
+  validateEmailConfig();
 };
 
 module.exports = validateEnv;

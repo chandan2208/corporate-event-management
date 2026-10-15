@@ -20,15 +20,19 @@ const rateLimit = require('express-rate-limit');
  * hardening pass. This limitation is deliberately documented rather than
  * silently accepted or falsely presented as production-scale-safe.
  */
-const createRateLimiter = ({ windowMs, limit, message }) =>
+const createRateLimiter = ({ windowMs, limit, message, keyGenerator }) =>
   rateLimit({
     windowMs,
     limit,
     standardHeaders: true,
     legacyHeaders: false,
+    ...(keyGenerator && { keyGenerator }),
     message: {
       success: false,
-      error: { message: message || 'Too many attempts. Please try again later.' },
+      error: {
+        message: message || 'Too many attempts. Please try again later.',
+        code: 'RATE_LIMITED',
+      },
     },
   });
 
@@ -92,6 +96,54 @@ const certificateRateLimiter = createRateLimiter({
   message: 'Too many certificate requests. Please try again later.',
 });
 
+// ---------------------------------------------------------------------------
+// Phase 15 — email verification limiters.
+//
+// Each endpoint gets BOTH a per-IP limiter (runs first, before body
+// validation) and a per-email limiter (runs after validation, keyed on the
+// normalized email). The per-email limiter applies to every address
+// whether or not an account exists, so hitting it reveals nothing.
+// Same in-memory-store limitation as above.
+// ---------------------------------------------------------------------------
+const VERIFY_EMAIL_LIMIT = parseInt(process.env.RATE_LIMIT_VERIFY_EMAIL, 10) || 20;
+const VERIFY_EMAIL_PER_EMAIL_LIMIT =
+  parseInt(process.env.RATE_LIMIT_VERIFY_EMAIL_PER_EMAIL, 10) || 10;
+const RESEND_VERIFICATION_LIMIT = parseInt(process.env.RATE_LIMIT_RESEND_VERIFICATION, 10) || 10;
+const RESEND_VERIFICATION_PER_EMAIL_LIMIT =
+  parseInt(process.env.RATE_LIMIT_RESEND_VERIFICATION_PER_EMAIL, 10) || 5;
+
+const emailKey = (req) => `email:${typeof req.body?.email === 'string' ? req.body.email : ''}`;
+
+/** POST /auth/verify-email — per IP, 15-minute window. */
+const verifyEmailRateLimiter = createRateLimiter({
+  windowMs: minutes(15),
+  limit: VERIFY_EMAIL_LIMIT,
+  message: 'Too many verification attempts. Please try again later.',
+});
+
+/** POST /auth/verify-email — per email address, 15-minute window. */
+const verifyEmailPerEmailRateLimiter = createRateLimiter({
+  windowMs: minutes(15),
+  limit: VERIFY_EMAIL_PER_EMAIL_LIMIT,
+  message: 'Too many verification attempts for this email. Please try again later.',
+  keyGenerator: emailKey,
+});
+
+/** POST /auth/resend-verification — per IP, 15-minute window. */
+const resendVerificationRateLimiter = createRateLimiter({
+  windowMs: minutes(15),
+  limit: RESEND_VERIFICATION_LIMIT,
+  message: 'Too many code requests. Please try again later.',
+});
+
+/** POST /auth/resend-verification — per email address, 1-hour window. */
+const resendVerificationPerEmailRateLimiter = createRateLimiter({
+  windowMs: minutes(60),
+  limit: RESEND_VERIFICATION_PER_EMAIL_LIMIT,
+  message: 'Too many code requests for this email. Please try again later.',
+  keyGenerator: emailKey,
+});
+
 module.exports = authRateLimiter;
 module.exports.createRateLimiter = createRateLimiter;
 module.exports.authRateLimiter = authRateLimiter;
@@ -99,3 +151,7 @@ module.exports.refreshRateLimiter = refreshRateLimiter;
 module.exports.checkInRateLimiter = checkInRateLimiter;
 module.exports.feedbackRateLimiter = feedbackRateLimiter;
 module.exports.certificateRateLimiter = certificateRateLimiter;
+module.exports.verifyEmailRateLimiter = verifyEmailRateLimiter;
+module.exports.verifyEmailPerEmailRateLimiter = verifyEmailPerEmailRateLimiter;
+module.exports.resendVerificationRateLimiter = resendVerificationRateLimiter;
+module.exports.resendVerificationPerEmailRateLimiter = resendVerificationPerEmailRateLimiter;

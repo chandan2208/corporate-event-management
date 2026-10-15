@@ -37,18 +37,45 @@ const refreshCookieOptions = {
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days, matches JWT_REFRESH_EXPIRES_IN default
 };
 
+/**
+ * Phase 15: registration no longer signs the user in (no access token, no
+ * refresh cookie). The account must verify its email first.
+ */
 const register = async (req, res, next) => {
   try {
-    const { user, accessToken, refreshToken } = await authService.register(req.body);
-
-    res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions);
+    const result = await authService.register(req.body);
 
     res.status(201).json({
       success: true,
-      message: 'Registration successful',
-      data: { user, accessToken },
+      message: result.emailSent
+        ? 'Registration successful. Please verify your email.'
+        : 'Registration successful, but we could not send the verification email right now. Please request a new code.',
+      data: result,
     });
   } catch (err) {
+    next(err);
+  }
+};
+
+const verifyEmail = async (req, res, next) => {
+  try {
+    const data = await authService.verifyEmail(req.body);
+    res.status(200).json({
+      success: true,
+      message: 'Email verified successfully. You can now sign in.',
+      data,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const resendVerification = async (req, res, next) => {
+  try {
+    const { message } = await authService.resendVerification(req.body);
+    res.status(200).json({ success: true, message });
+  } catch (err) {
+    if (err.retryAfterSeconds) res.set('Retry-After', String(err.retryAfterSeconds));
     next(err);
   }
 };
@@ -116,4 +143,4 @@ const logout = async (req, res) => {
   res.status(200).json({ success: true, message: 'Logged out successfully' });
 };
 
-module.exports = { register, login, me, refresh, logout };
+module.exports = { register, login, me, refresh, logout, verifyEmail, resendVerification };

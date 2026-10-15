@@ -9,9 +9,22 @@
  */
 
 // eslint-disable-next-line no-unused-vars
+/**
+ * Phase 15: body-parser rejects malformed JSON (400) and over-limit bodies
+ * (413) with `expose: true` errors. Previously these reached the client as
+ * the right status but with the generic 'Internal server error' text; they
+ * now get an accurate, still-generic message. Nothing from the parser's
+ * own error text (which can echo input) is returned.
+ */
+const BODY_PARSER_MESSAGES = {
+  'entity.parse.failed': 'Malformed JSON request body',
+  'entity.too.large': 'Request payload too large',
+};
+
 const errorHandler = (err, req, res, next) => {
+  const parserMessage = err.expose && BODY_PARSER_MESSAGES[err.type];
   const statusCode = err.statusCode || 500;
-  const message = err.isOperational ? err.message : 'Internal server error';
+  const message = err.isOperational ? err.message : parserMessage || 'Internal server error';
 
   // Full error is always logged on the server for debugging,
   // even if we hide details from the client in production.
@@ -23,6 +36,11 @@ const errorHandler = (err, req, res, next) => {
       message,
       ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
       ...(err.details && { details: err.details }),
+      // Only our own ApiError codes — never driver codes like pg's '23505'.
+      ...(err.isOperational && err.code && { code: err.code }),
+      // Phase 15: also in the body because browsers hide the Retry-After
+      // header from cross-origin JS unless CORS explicitly exposes it.
+      ...(err.isOperational && err.retryAfterSeconds && { retryAfterSeconds: err.retryAfterSeconds }),
     },
   });
 };

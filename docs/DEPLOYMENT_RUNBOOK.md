@@ -12,6 +12,20 @@ required to test it. Nothing here is a claim of "100% production ready,"
 
 ---
 
+## Phase 15 (Email Verification) — Deployment Steps
+
+Do these **in this order** so existing employees are never locked out without a way to get a code:
+
+1. Choose a provider. Render **free** web services block outbound SMTP on ports 25/465/587 (since Sept 2025): use `EMAIL_PROVIDER=brevo` + `EMAIL_API_KEY`, or an SMTP relay on port **2525**. Paid instances can use any SMTP port.
+2. Verify the sender address/domain with the provider; set `EMAIL_FROM` to it.
+3. Render → backend service → **Environment**: add `EMAIL_PROVIDER`, `EMAIL_FROM` and either `EMAIL_HOST`/`EMAIL_PORT`/`EMAIL_SECURE`/`EMAIL_USER`/`EMAIL_PASSWORD` (smtp) or `EMAIL_API_KEY` (brevo). Optionally `EMAIL_VERIFICATION_SECRET`. **Never** in GitHub, never in the frontend service. With `NODE_ENV=production` the backend refuses to start if email is not configured.
+4. Deploy the backend, then run `npm run migrate:up` (applies `1700000000010_add-email-verification`: admins become verified, existing employees must verify once; no other data changes).
+5. Redeploy the frontend (new `/verify-email` page).
+6. Smoke test: register a real address you control → receive the code → verify → log in. Log in as admin (must work without a code). Check the backend logs contain no codes.
+7. Tell existing employees they'll be asked to verify their email once at next sign-in. For anyone whose mailbox can't receive the code: `npm run verify:user -- <email>` from a Render shell.
+
+Rollback: `npm run migrate:down` (drops `email_verification_codes` and the two `users` columns) and redeploy the previous backend/frontend.
+
 ## Pre-Deployment Checklist
 
 - [x] PASS — `backend/.env.example` exists and contains placeholders only (verified: no real secret values, grepped for known patterns)
@@ -26,6 +40,7 @@ required to test it. Nothing here is a claim of "100% production ready,"
 
 - [x] PASS — All required variables enumerated and documented (README §16.3): `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DATABASE_URL` (migrations), `JWT_SECRET`, `JWT_REFRESH_SECRET`, `CLIENT_URL`
 - [x] PASS — Optional variables with safe defaults documented: `PORT`, `NODE_ENV`, `JWT_EXPIRES_IN`, `JWT_REFRESH_EXPIRES_IN`, `BCRYPT_SALT_ROUNDS`, `RATE_LIMIT_*`
+- [x] PASS (Phase 15) — Email variables documented (README §17, `backend/.env.example` placeholders only): `EMAIL_PROVIDER`, `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_SECURE`, `EMAIL_USER`, `EMAIL_PASSWORD`, `EMAIL_REQUIRE_TLS`, `EMAIL_API_KEY`, `EMAIL_FROM`, `EMAIL_VERIFICATION_SECRET`; required in production
 - [x] PASS — `VITE_API_BASE_URL` documented as a **build-time** frontend variable (confirmed live: it's baked into the JS bundle, not read at runtime)
 - [x] PASS — No environment variable was invented that the application doesn't actually read — every entry above was confirmed against actual source code usage
 

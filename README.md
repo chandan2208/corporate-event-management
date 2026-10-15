@@ -5,6 +5,12 @@ creation, employee registration with automatic seat allocation, QR-code-based
 check-in, feedback, certificate generation, and analytics dashboards for
 Admin and Employee roles.
 
+> **Phase 15 (Email Verification Code / OTP) added** — new employees must
+> verify their email with a 6-digit emailed code before they can sign in.
+> See [Email Verification (Phase 15)](#17-email-verification-phase-15).
+> "Phase 15 email verification completed against the defined verification
+> scope." (Not a claim of "100% secure".)
+>
 > **Status: Phase 14 complete (Deployment & Production Readiness).** Project
 > setup, authentication, event management, employee event registration with
 > concurrency-safe seat allocation, QR code generation, admin QR-scanning
@@ -280,8 +286,10 @@ correctly wired together and talking to the backend.
 
 | Method | Path | Auth required | Notes |
 |---|---|---|---|
-| POST | `/api/auth/register` | No | Always creates an **employee** — `role` is never read from the request |
-| POST | `/api/auth/login` | No | Works for both admin and employee; role comes from the DB |
+| POST | `/api/auth/register` | No | Always creates an **employee** — `role` is never read from the request. **Phase 15:** account starts unverified, a code is emailed, **no token is issued** |
+| POST | `/api/auth/verify-email` | No | **Phase 15** — `{ email, code }` marks the email verified |
+| POST | `/api/auth/resend-verification` | No | **Phase 15** — `{ email }` emails a new code (generic response, 60 s cooldown) |
+| POST | `/api/auth/login` | No | Works for both admin and employee; role comes from the DB. **Phase 15:** unverified accounts get `403 EMAIL_NOT_VERIFIED` |
 | GET | `/api/auth/me` | Yes (access token) | Returns the current user |
 | POST | `/api/auth/refresh-token` | No (uses httpOnly cookie) | Issues a new access token |
 | POST | `/api/auth/logout` | No | Clears the refresh-token cookie |
@@ -302,10 +310,15 @@ correctly wired together and talking to the backend.
 ### Manual test with curl
 
 ```bash
-# Register an employee
-curl -c cookies.txt -X POST http://localhost:5000/api/auth/register \
+# Register an employee (Phase 15: emails a 6-digit code; no token returned)
+curl -X POST http://localhost:5000/api/auth/register \
   -H "Content-Type: application/json" \
   -d '{"name":"Test User","email":"test@example.com","password":"Passw0rd1"}'
+
+# Verify with the code from the email, then log in normally
+curl -X POST http://localhost:5000/api/auth/verify-email \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","code":"123456"}'
 
 # Log in as the admin you created in Step 5 above
 curl -c cookies.txt -X POST http://localhost:5000/api/auth/login \
@@ -320,7 +333,8 @@ curl -H "Authorization: Bearer <token>" http://localhost:5000/api/auth/me
 
 1. Start both backend and frontend (see below).
 2. Visit `http://localhost:5173/register`, create an employee account →
-   you should land on the **Employee Dashboard**.
+   you land on **Verify your email**. Enter the 6-digit code from the
+   email (Phase 15), then sign in → you land on the **Employee Dashboard**.
 3. Click **Log out**.
 4. Visit `/login` and sign in with the admin credentials from your `.env`
    → you should land on the **Admin Dashboard**.
@@ -1166,10 +1180,25 @@ at the end of a full run (see below).
 # intentionally creates far more than 20 accounts/registrations across
 # its concurrency tests, which would otherwise trip the Phase 12 rate
 # limiters (a sign they're working correctly, not a bug — see below).
-RATE_LIMIT_AUTH=1000 RATE_LIMIT_CHECKIN=1000 RATE_LIMIT_FEEDBACK=1000 RATE_LIMIT_CERTIFICATE=1000 npm run dev
+#
+# Phase 15: employees must now verify their email, so the suite starts a
+# local SMTP capture server on port 2526 (scripts/lib/testMailSink.js) and
+# the backend must be pointed at it. Every employee the suite creates goes
+# through the real register -> emailed code -> verify -> login flow.
+TZ=UTC RATE_LIMIT_AUTH=1000 RATE_LIMIT_CHECKIN=1000 RATE_LIMIT_FEEDBACK=1000 RATE_LIMIT_CERTIFICATE=1000 \
+RATE_LIMIT_VERIFY_EMAIL=1000 EMAIL_HOST=127.0.0.1 EMAIL_PORT=2526 EMAIL_SECURE=false \
+EMAIL_FROM="CEM Test <no-reply@cem.test>" npm run dev
 # in a second terminal:
 npm run test:phase13
 ```
+
+> **Run the server in UTC (`TZ=UTC`, which is what Render uses).** Found
+> during Phase 15 regression: `event.service.js` formats the stored event
+> date with `toISOString()`, which shifts it back one day when the server's
+> timezone is ahead of UTC (e.g. Asia/Kolkata). On such a machine the
+> Phase 13 check "update event succeeds" fails — identically on the
+> pre-Phase-15 code. It is out of Phase 15's scope and was left unchanged;
+> it does not affect a UTC server.
 
 ### Methodology
 
@@ -1319,6 +1348,12 @@ secrets):
 | `BCRYPT_SALT_ROUNDS` | No (defaults 12) | Password hashing cost |
 | `CLIENT_URL` | **Yes** | The single allowed CORS origin |
 | `RATE_LIMIT_AUTH`, `RATE_LIMIT_REFRESH`, `RATE_LIMIT_CHECKIN`, `RATE_LIMIT_FEEDBACK`, `RATE_LIMIT_CERTIFICATE` | No (sensible defaults) | Per-endpoint rate limits |
+| `EMAIL_PROVIDER` | No (defaults `smtp`) | **Phase 15** — `smtp` (Nodemailer) or `brevo` (HTTPS API) |
+| `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_FROM` | **Yes in production** (smtp) | **Phase 15** — SMTP relay; server refuses to start in production without them (warning only in development) |
+| `EMAIL_SECURE`, `EMAIL_USER`, `EMAIL_PASSWORD`, `EMAIL_REQUIRE_TLS` | No | **Phase 15** — SMTP TLS mode / credentials |
+| `EMAIL_API_KEY` | **Yes in production** (brevo) | **Phase 15** — Brevo API key |
+| `EMAIL_VERIFICATION_SECRET` | No (derived from `JWT_SECRET`) | **Phase 15** — HMAC key for codes at rest |
+| `RATE_LIMIT_VERIFY_EMAIL`, `RATE_LIMIT_VERIFY_EMAIL_PER_EMAIL`, `RATE_LIMIT_RESEND_VERIFICATION`, `RATE_LIMIT_RESEND_VERIFICATION_PER_EMAIL` | No (sensible defaults) | **Phase 15** — verification limiters |
 | `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Yes (seed script only) | Used once by `npm run seed:admin`, never read by the running server |
 | `VITE_API_BASE_URL` (frontend, build-time) | Yes for a non-local deploy | The backend's public URL — **Vite bakes this into the build at `npm run build` time, not at runtime**, so it must be set correctly *before* building, not just on the server |
 
@@ -1505,7 +1540,248 @@ audit — all re-checked live, all still passing).
 
 ---
 
-## 17. Running Both Together
+## 17. Email Verification (Phase 15)
+
+"Phase 15 email verification completed against the defined verification
+scope." This is not a claim of "100% secure".
+
+### Authentication flow (final)
+
+```
+Register ──► account created as EMPLOYEE, email_verified = false
+   │          6-digit code emailed (no access/refresh token issued)
+   ▼
+Verify email (POST /api/auth/verify-email) ──► email_verified = true
+   ▼
+Password login ──► JWT access token (memory) + httpOnly refresh cookie
+   ▼
+Existing RBAC (admin / employee) — unchanged
+```
+
+bcrypt, JWT access tokens, the httpOnly refresh-token cookie, token
+refresh, logout and RBAC are all unchanged. Email verification is an
+additional gate:
+
+| Where | Unverified account gets |
+|---|---|
+| `POST /api/auth/login` (after the password matched) | `403 { code: "EMAIL_NOT_VERIFIED", message: "Please verify your email before signing in." }` — no token, no cookie, no role |
+| `POST /api/auth/refresh-token` | `403 EMAIL_NOT_VERIFIED` — an old refresh cookie can't keep a session alive |
+| Any protected API (`authenticate` middleware) | `403 EMAIL_NOT_VERIFIED` — even a still-valid older access token is refused |
+
+The database is the source of truth; nothing the frontend says about
+verification is trusted.
+
+### Verification code rules
+
+| Rule | Value / mechanism |
+|---|---|
+| Format | exactly 6 digits, `crypto.randomInt` (OS CSPRNG) — never `Math.random()` or timestamps |
+| Storage | only `HMAC-SHA256(key, "<userId>:<code>")` is stored. `key` = `EMAIL_VERIFICATION_SECRET`, or a domain-separated derivation of `JWT_SECRET` if unset. A database dump alone can't brute-force the 10⁶ codes offline. Compared with `timingSafeEqual`. |
+| Expiry | **10 minutes** (database clock) |
+| Single use | `used_at` set on success; replay → `401 INVALID_CODE` |
+| Max attempts | **5** wrong attempts per code, then the code is invalidated → `429 TOO_MANY_ATTEMPTS`, user must request a new code. Counter updates happen under a row lock and are committed even on failure (parallel guessing can't exceed 5). Counters are never revealed. |
+| Resend cooldown | **60 seconds** (`429 RESEND_COOLDOWN` + `Retry-After` + `retryAfterSeconds`) |
+| Resend | invalidates every previous active code before issuing a new one |
+| One active code | partial unique index `(user_id) WHERE used_at IS NULL AND invalidated_at IS NULL` |
+| Cleanup | used/invalidated/expired rows older than 24 h are deleted hourly by the server and via `npm run cleanup:verification-codes` |
+| Never | logged, returned in any JSON response, or stored raw |
+
+### Endpoints
+
+**`POST /api/auth/register`** → `201`
+```json
+{ "success": true, "message": "Registration successful. Please verify your email.",
+  "data": { "email": "p*******@example.com", "emailSent": true, "verificationRequired": true,
+            "codeExpiresInMinutes": 10, "resendCooldownSeconds": 60 } }
+```
+
+**`POST /api/auth/verify-email`** `{ "email", "code" }`
+- `200` `{ message: "Email verified successfully. You can now sign in.", data: { email (masked), emailVerified: true } }`
+- `400` invalid format / unexpected fields (`.strict()` Zod), `401 INVALID_CODE` (wrong/used/unknown email — identical response), `401 CODE_EXPIRED`, `409 ALREADY_VERIFIED`, `413` body > 2 KB, `429 TOO_MANY_ATTEMPTS` / `RATE_LIMITED`
+
+**`POST /api/auth/resend-verification`** `{ "email" }`
+- Always `200 "If the account requires verification, a new code has been sent."` for unknown, deactivated and already-verified addresses (no enumeration). Email delivery runs after the response so timing doesn't leak either.
+- `429 RESEND_COOLDOWN` within 60 s — applied to **every** address, existing or not.
+
+### Rate limiting (in-memory, same store as Phase 12)
+
+| Endpoint | Per IP | Per email address |
+|---|---|---|
+| `/auth/register`, `/auth/login` | 20 / 15 min (`RATE_LIMIT_AUTH`, unchanged) | — |
+| `/auth/verify-email` | 20 / 15 min (`RATE_LIMIT_VERIFY_EMAIL`) | 10 / 15 min (`RATE_LIMIT_VERIFY_EMAIL_PER_EMAIL`) |
+| `/auth/resend-verification` | 10 / 15 min (`RATE_LIMIT_RESEND_VERIFICATION`) | 5 / 60 min (`RATE_LIMIT_RESEND_VERIFICATION_PER_EMAIL`) + 60 s cooldown |
+
+Like every limiter since Phase 12, these counters live in process memory:
+correct for the current single-instance Render deployment, but not shared
+across multiple instances and reset on restart (the 60 s cooldown is also
+enforced from the database, so it survives restarts). No Redis was added.
+
+### Email provider configuration
+
+All settings are backend environment variables (placeholders in
+`backend/.env.example`). Nothing email-related exists in the frontend.
+
+| Variable | Notes |
+|---|---|
+| `EMAIL_PROVIDER` | `smtp` (default, Nodemailer) or `brevo` (HTTPS API) |
+| `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_SECURE`, `EMAIL_USER`, `EMAIL_PASSWORD` | SMTP relay (`EMAIL_SECURE=true` for port 465, `false` for STARTTLS on 587/2525) |
+| `EMAIL_REQUIRE_TLS` | optional; defaults to `true` in production when `EMAIL_SECURE=false` |
+| `EMAIL_API_KEY` | Brevo API key (`EMAIL_PROVIDER=brevo`) |
+| `EMAIL_FROM` | e.g. `Corporate Event Management <no-reply@yourdomain.com>` — must be a sender verified with your provider |
+| `EMAIL_VERIFICATION_SECRET` | optional HMAC key for codes at rest |
+
+In production the server refuses to start if email isn't configured; in
+development it starts with a loud warning.
+
+> **Render free tier:** since September 2025 Render's free web services
+> block outbound SMTP on ports 25, 465 and 587. On a free instance use
+> `EMAIL_PROVIDER=brevo` + `EMAIL_API_KEY` (HTTPS, port 443), or an SMTP
+> relay on port 2525 (Brevo, SendGrid and Mailgun offer it). Paid Render
+> instances can use any SMTP port. Gmail SMTP (app password, port 465/587)
+> works only on a paid instance.
+
+**Render setup:** backend service → Environment → add the `EMAIL_*`
+variables → redeploy → run `npm run migrate:up` (adds migration
+`1700000000010`). Never put these in GitHub or in the frontend service.
+
+### Email content
+
+Subject: *Verify your Corporate Event Management account*. Plain-text and
+HTML versions containing the app name, the user's name, the code, the
+10-minute expiry, a "never share this code" notice and "If you did not
+create this account, you can safely ignore this email." No password,
+token, internal id or database detail.
+
+### Email delivery failure
+
+The account and its first code are created in one transaction; the email
+is sent after commit. If sending fails, the account stays **pending** (the
+address stays reserved — `users.email` is UNIQUE, so no duplicate account
+can ever be created), the undeliverable code row is deleted, the cooldown
+is cleared, and the response says
+`emailSent: false` / "please request a new code". The user presses
+**Resend code** once delivery works. Failures are logged as one sanitized
+line with a masked address — never the body or credentials.
+
+### Existing accounts (migration `1700000000010_add-email-verification`)
+
+- The migration only **adds** columns/tables: names, emails, password
+  hashes, roles, departments/designations, registrations, attendance,
+  feedback and certificates are untouched (verified with a before/after
+  fingerprint of every user row).
+- **Admins** (created by the trusted `seed:admin` script) are marked
+  verified — admin login keeps working immediately. `seed:admin` now
+  creates verified admins.
+- **Existing employees** get a one-time verification requirement: their
+  next login shows "Your email is not verified" with **Resend Code** →
+  they receive a code → verify → log in with their unchanged password.
+- Operator fallback for an employee whose mailbox can't receive mail:
+  `npm run verify:user -- someone@company.com` (server-side only, like
+  `seed:admin`).
+- Rollback: `npm run migrate:down` removes the table and the two columns.
+
+### Frontend
+
+- `/verify-email` — masked address, 6-box code input (paste, mobile
+  one-time-code autofill), Verify button, Resend with live countdown,
+  loading / error / success states, "use a different email" when opened
+  directly. The full address travels only in in-memory router state,
+  never in the URL.
+- Register → redirects to `/verify-email` (no longer signs in).
+- Login → for `EMAIL_NOT_VERIFIED` shows "Your email is not verified." with
+  **Verify Email** and **Resend Code**; after verifying, shows a green
+  "Email verified" banner with the email prefilled.
+
+### Tests (actually executed)
+
+```bash
+cd backend
+npm run test:phase15     # starts its own SMTP server + backend; ~1.5 min (real 60 s cooldown wait)
+```
+
+`scripts/phase15EmailVerificationTest.js` spawns the real backend with a
+real authenticated SMTP capture server, drives the HTTP API, reads codes
+from the delivered emails, and checks PostgreSQL directly. It also scans
+the backend's complete stdout/stderr and every API response body for
+every issued code, the SMTP password and stored hashes, and scans the
+built frontend for email settings.
+
+**Results — actual execution, not estimated:**
+
+| Suite / check | Environment | Result |
+|---|---|---|
+| `npm run test:phase15` | development DB containing an employee created by the **pre-Phase-15** code (exercises the existing-account path) | **170 passed, 0 failed** |
+| `npm run test:phase15` | brand-new database, project extracted from the final ZIP (the 9 existing-account checks don't apply there) | **161 passed, 0 failed** |
+| `npm run test:phase13` (Phase 1–14 regression, now via the real verification flow) | extracted ZIP, fresh DB, `TZ=UTC` | **203 passed, 0 failed** |
+| `npm run test:qr` | extracted ZIP | pass |
+| Backend syntax check (`node --check`, 94 files) | extracted ZIP | 0 errors |
+| Frontend `npm run build` | extracted ZIP | success, 728 modules; `oxlint`: no new warnings (same 5 pre-existing) |
+| Migrations | fresh DB | 10/10 applied in order, re-run is a no-op, `migrate:down`/`up` of 1700000000010 verified; existing user rows byte-identical before/after (md5 fingerprint) |
+| Browser walk-through (Playwright, Chromium) | built frontend + backend + SMTP capture | register → verify page → wrong code → cooldown → paste code → verified → login → dashboard; unverified-login panel → Resend → verify page; direct visit |
+
+Required checks → suite sections (all in the 170-check run):
+
+| # | Check | Section | # | Check | Section |
+|---|---|---|---|---|---|
+| 1 | registration sends email | 01-Register (23) | 14 | duplicate registration blocked (incl. 6 concurrent) | 14-Duplicate (5) |
+| 2 | invalid email rejected | 02-InvalidEmail (3) | 15 | inactive account remains blocked | 15-Inactive (5) |
+| 3 | invalid code rejected | 03-InvalidCode (4) | 16 | admin login works | 16-AdminLogin (3) |
+| 4 | valid code accepted | 04-ValidCode (7) | 17 | employee login/features work | 17-EmployeeLogin (3), 11-Existing, Phase 13 suite |
+| 5 | expired code rejected | 05-Expired (5) | 18 | code never in API responses | 18-NoCodeInResponses (2) |
+| 6 | reused code rejected | 06-Reuse (3) | 19 | code never in logs | 19-NoCodeInLogs (4) |
+| 7 | wrong-attempt counter | 07-Attempts (4) | 20 | SMTP credentials never in frontend | 20-NoSecretsInFrontend (4) |
+| 8 | max attempts (incl. parallel guesses) | 08-MaxAttempts (6) | 21 | malformed code rejected | 21-Malformed (12) |
+| 9 | resend works | 09-Resend (5) | 22 | unexpected JSON fields | 22-UnexpectedFields (9) |
+| 10 | resend cooldown | 10-Cooldown (7) | 23 | oversized request rejected | 23-Oversized (5) |
+| 11 | old code invalid after resend | 11-OldCodeInvalid (1), 09-Resend | 24 | verify rate limit | 24-VerifyRateLimit (4) |
+| 12 | unverified login blocked | 12-UnverifiedLogin (7) | 25 | resend rate limit | 25-ResendRateLimit (4) |
+| 13 | verified login succeeds | 13-VerifiedLogin (7) | + | delivery failure, existing accounts, cleanup, Brevo provider, production config fail-fast | 18b, 11-Existing, Cleanup, Provider-Brevo, Config |
+
+**Bugs found during Phase 15 testing**
+
+- *Application (fixed):* the browser walk-through showed that the
+  frontend couldn't read the `Retry-After` header on a 429 (browsers hide
+  it from cross-origin JS unless CORS exposes it), so "Resend Code" during
+  the cooldown showed an error instead of a countdown. Fix: the error body
+  now also carries `retryAfterSeconds`; a check for it was added
+  (10-Cooldown).
+- *Test script (own mistakes, fixed):* two expected masked-email strings
+  had the wrong number of `*`, and a "captured enough codes" threshold was
+  too strict for repeat runs.
+- *Pre-existing, not fixed:* the timezone issue in event date handling
+  noted in the Phase 13 section.
+
+### Known limitations (Phase 15)
+
+1. **Not verified against a real external email provider** from this
+   sandbox (no provider credentials). SMTP delivery was verified against a
+   real local SMTP server with AUTH; the Brevo provider was verified
+   against a local stand-in for its HTTPS endpoint (request shape,
+   headers, error handling). Do one real registration after configuring
+   Render to confirm delivery.
+2. **In-memory rate limits/cooldown map** — see above; single instance only.
+3. **Email squatting**: anyone can register an address they don't own; it
+   stays unverified and unusable, but the real owner then gets
+   "An account with this email already exists" (the pre-existing 409
+   behavior was kept). An operator can delete such a pending row.
+4. **Register still reveals whether an email is registered (409)** — that
+   is pre-existing Phase 2 behavior and was kept; the new verify/resend
+   endpoints add no further enumeration beyond it (verify answers "already
+   verified" with 409 for an address that's verified).
+5. **Existing employees are blocked until they verify once.** If email
+   isn't configured on Render when this deploys, they can't get a code —
+   configure email before (or together with) running the migration.
+6. **Pre-existing dependency advisories** — `npm audit --omit=dev` reports
+   3 advisories (`proxy-addr`, `brace-expansion`, `ip-address`) that are
+   present identically in the pre-Phase-15 lockfile (published after
+   Phase 14's clean audit). `npm audit fix` resolves them; left for a
+   dedicated dependency-update change rather than mixed into this phase.
+7. **Pre-existing timezone bug** in event date handling on servers ahead
+   of UTC (see the Phase 13 section) — unrelated to this phase, not fixed.
+
+---
+
+## 18. Running Both Together
 
 You need **two terminals** open at the same time:
 
@@ -1521,6 +1797,13 @@ npm run dev
 
 Backend → http://localhost:5000
 Frontend → http://localhost:5173
+
+**Phase 15:** registering needs working email. For local development the
+easiest option is [Mailpit](https://mailpit.axllent.org/) (a local SMTP
+server with a web inbox): run it, then set `EMAIL_HOST=127.0.0.1`,
+`EMAIL_PORT=1025`, `EMAIL_SECURE=false`, `EMAIL_FROM="CEM Dev <dev@localhost>"`
+in `backend/.env` and read codes at http://localhost:8025. (An operator can
+also skip the code for one account with `npm run verify:user -- <email>`.)
 
 ---
 
@@ -1786,9 +2069,26 @@ Frontend → http://localhost:5173
 - [x] **Not actually cloud-deployed** — no deployment credentials/access
       available in this sandbox; stated explicitly, not glossed over
 
+**Phase 15 — Email Verification Code / OTP**
+- [x] `users.email_verified` / `email_verified_at` + `email_verification_codes`
+      table (FK, indexes, one-active-code-per-user partial unique index)
+- [x] Cryptographically random 6-digit codes, HMAC-SHA256 at rest, 10-minute
+      expiry, single use, 5-attempt lockout, 60 s resend cooldown
+- [x] Registration creates an unverified account and emails the code (no
+      token issued); login/refresh/protected APIs refuse unverified accounts
+- [x] `POST /api/auth/verify-email`, `POST /api/auth/resend-verification`
+      with strict Zod validation, per-IP + per-email rate limits, 2 KB body cap
+- [x] Email via Nodemailer SMTP or Brevo HTTPS API (Render free tier blocks SMTP)
+- [x] Existing admins migrated as verified; existing employees verify once
+      (data untouched); `npm run verify:user` operator path
+- [x] Frontend `/verify-email` page, register → verify → login flow,
+      unverified-login panel with Verify / Resend
+- [x] `npm run test:phase15` — real SMTP + real backend + real PostgreSQL
+- [x] Phase 13 regression suite updated to the real verification flow
+
 ## Not Implemented Yet
 
-All 14 planned phases are now implemented. The application has **not**
+All 15 planned phases are now implemented. The application has **not**
 been deployed to an actual cloud/production environment (no credentials
 available in this sandbox) — see the Production Deployment section and
 the final Phase 14 report for the exact, honest scope of what was and

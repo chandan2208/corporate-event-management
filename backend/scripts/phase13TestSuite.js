@@ -19,6 +19,16 @@
 
 require('dotenv').config();
 const { Pool } = require('pg');
+const { startMailSink } = require('./lib/testMailSink');
+
+// PHASE 15 NOTE: registration no longer returns a token — new employees
+// must verify their email first. This suite now starts a local SMTP
+// capture server (scripts/lib/testMailSink.js) and the backend must be
+// started pointing at it (see README "Running the suite"), so every
+// employee created here goes through the REAL register -> emailed code ->
+// verify-email -> login flow.
+const SMTP_PORT = parseInt(process.env.TEST_SMTP_PORT, 10) || 2526;
+let mailSink = null;
 
 const BASE_URL = 'http://localhost:5000/api';
 const RUN_ID = Date.now();
@@ -74,8 +84,14 @@ const login = async (email, password) => {
 };
 
 const registerEmployee = async (name, email, password = 'TestPass123') => {
-  const { json } = await api('POST', '/auth/register', { body: { name, email, password } });
-  return json?.data?.accessToken;
+  const reg = await api('POST', '/auth/register', { body: { name, email, password } });
+  if (reg.status !== 201) return undefined;
+  const message = await mailSink.waitForEmail(email, 1);
+  const code = mailSink.extractCode(message);
+  if (!code) return undefined;
+  const verified = await api('POST', '/auth/verify-email', { body: { email, code } });
+  if (verified.status !== 200) return undefined;
+  return login(email, password);
 };
 
 const createPublishedEvent = async (adminToken, overrides = {}) => {
@@ -99,6 +115,7 @@ const createPublishedEvent = async (adminToken, overrides = {}) => {
 
 async function run() {
   console.log(`\n=== PHASE 13 COMPREHENSIVE TEST SUITE — run ${RUN_ID} ===\n`);
+  mailSink = await startMailSink({ port: SMTP_PORT });
 
   // ======================================================================
   // SECTION 3: BACKEND HEALTH
@@ -997,7 +1014,8 @@ module.exports = { run, api, db, check, login, registerEmployee, createPublished
 
 if (require.main === module) {
   run()
-    .then(() => {
+    .then(async () => {
+      if (mailSink) await mailSink.close();
       console.log('\n=== SECTION BREAKDOWN ===');
       Object.entries(sections).forEach(([name, counts]) => {
         console.log(`  ${name.padEnd(22)} pass: ${String(counts.pass).padStart(3)}  fail: ${counts.fail}`);

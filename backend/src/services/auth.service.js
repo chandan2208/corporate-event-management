@@ -6,6 +6,7 @@ const {
   verifyRefreshToken,
 } = require('../utils/jwt');
 const userModel = require('../models/user.model');
+const emailVerificationService = require('./emailVerification.service');
 
 /**
  * Builds the token pair for a given user. `sub` (subject) is the standard
@@ -32,6 +33,7 @@ const toPublicUser = (user) => ({
   department: user.department,
   designation: user.designation,
   isActive: user.is_active,
+  emailVerified: user.email_verified,
   createdAt: user.created_at,
 });
 
@@ -39,6 +41,12 @@ const toPublicUser = (user) => ({
  * Public self-registration. Always creates an EMPLOYEE — the `role` field
  * is never read from the request body, so there's no way for a client to
  * register themselves as an admin through this endpoint.
+ *
+ * Phase 15: the account is created UNVERIFIED and a 6-digit code is
+ * emailed. No access/refresh token is issued here any more — the user must
+ * verify their email and then sign in with their password. Only safe,
+ * non-identifying data (masked email, whether the email was sent) is
+ * returned.
  */
 const register = async ({ name, email, password, employeeCode, department, designation }) => {
   const existing = await userModel.findByEmail(email);
@@ -48,7 +56,7 @@ const register = async ({ name, email, password, employeeCode, department, desig
 
   const passwordHash = await hashPassword(password);
 
-  const user = await userModel.createUser({
+  return emailVerificationService.createPendingAccount({
     name,
     email,
     passwordHash,
@@ -57,10 +65,9 @@ const register = async ({ name, email, password, employeeCode, department, desig
     department,
     designation,
   });
-
-  const tokens = buildTokens(user);
-  return { user: toPublicUser(user), ...tokens };
 };
+
+const EMAIL_NOT_VERIFIED_MESSAGE = 'Please verify your email before signing in.';
 
 /**
  * Shared login logic for BOTH admin and employee — role is determined by
@@ -85,6 +92,13 @@ const login = async ({ email, password }) => {
   const passwordMatches = await comparePassword(password, user.password_hash);
   if (!passwordMatches) {
     throw new ApiError(401, 'Invalid email or password');
+  }
+
+  // Phase 15: checked only AFTER the password matched, so this response
+  // can't be used to probe which addresses have unverified accounts. No
+  // token of any kind is issued for an unverified account.
+  if (!user.email_verified) {
+    throw new ApiError(403, EMAIL_NOT_VERIFIED_MESSAGE, null, 'EMAIL_NOT_VERIFIED');
   }
 
   const tokens = buildTokens(user);
@@ -120,8 +134,24 @@ const refreshAccessToken = async (refreshToken) => {
     throw new ApiError(401, 'Invalid refresh token');
   }
 
+  // Phase 15: a refresh token issued before this phase to a now-unverified
+  // employee can't be used to keep a session alive.
+  if (!user.email_verified) {
+    throw new ApiError(403, EMAIL_NOT_VERIFIED_MESSAGE, null, 'EMAIL_NOT_VERIFIED');
+  }
+
   const tokens = buildTokens(user);
   return { user: toPublicUser(user), ...tokens };
 };
 
-module.exports = { register, login, getCurrentUser, refreshAccessToken };
+const verifyEmail = (payload) => emailVerificationService.verifyEmail(payload);
+const resendVerification = (payload) => emailVerificationService.resendVerification(payload);
+
+module.exports = {
+  register,
+  login,
+  getCurrentUser,
+  refreshAccessToken,
+  verifyEmail,
+  resendVerification,
+};

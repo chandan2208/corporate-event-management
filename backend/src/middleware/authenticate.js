@@ -39,6 +39,13 @@ const authenticate = async (req, res, next) => {
       throw new ApiError(403, 'This account has been deactivated');
     }
 
+    // Phase 15: defense in depth — even a still-unexpired access token
+    // (e.g. issued before this phase) can't reach protected APIs while the
+    // account's email is unverified. The database is the source of truth.
+    if (!user.email_verified) {
+      throw new ApiError(403, 'Email verification required', null, 'EMAIL_NOT_VERIFIED');
+    }
+
     req.user = user;
     next();
   } catch (err) {

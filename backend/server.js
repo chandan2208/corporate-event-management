@@ -16,6 +16,7 @@ validateEnv();
 
 const app = require('./src/app');
 const { pool } = require('./src/config/db');
+const { cleanupStaleCodes } = require('./src/services/emailVerification.service');
 
 const PORT = process.env.PORT || 5000;
 
@@ -81,6 +82,22 @@ const gracefulShutdown = (signal) => {
     process.exit(err ? 1 : 0);
   });
 };
+
+/**
+ * Phase 15: hourly cleanup of verification codes that can never be used
+ * again (used / invalidated / expired, older than 24h). `unref()` so the
+ * timer never keeps the process alive during shutdown. Lives here rather
+ * than in app.js so importing the app in tests starts no timers.
+ */
+const runVerificationCodeCleanup = async () => {
+  try {
+    const removed = await cleanupStaleCodes(24);
+    if (removed > 0) console.log(`Email verification cleanup: removed ${removed} stale code row(s).`);
+  } catch (err) {
+    console.error('Email verification cleanup failed:', err.message);
+  }
+};
+setInterval(runVerificationCodeCleanup, 60 * 60 * 1000).unref();
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));

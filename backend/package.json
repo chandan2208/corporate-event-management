@@ -10,8 +10,11 @@
     "migrate:down": "node-pg-migrate down",
     "migrate:create": "node-pg-migrate create",
     "seed:admin": "node src/scripts/seedAdmin.js",
+    "verify:user": "node src/scripts/verifyUserEmail.js",
+    "cleanup:verification-codes": "node src/scripts/cleanupVerificationCodes.js",
     "test:qr": "node scripts/qrDecodeTest.js",
     "test:phase13": "node scripts/phase13TestSuite.js",
+    "test:phase15": "node scripts/phase15EmailVerificationTest.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -27,6 +30,7 @@
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "node-pg-migrate": "^9.0.0",
+    "nodemailer": "^10.1.1",
     "pdfkit": "^0.20.2",
     "pg": "^8.23.0",
     "qrcode": "^1.5.4",
@@ -34,7 +38,9 @@
   },
   "devDependencies": {
     "jsqr": "^1.4.0",
+    "mailparser": "^3.9.39",
     "nodemon": "^3.1.14",
-    "pngjs": "^7.0.0"
+    "pngjs": "^7.0.0",
+    "smtp-server": "^3.19.22"
   }
 }

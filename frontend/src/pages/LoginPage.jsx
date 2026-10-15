@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import FormField from '../components/FormField';
 import AlertBanner from '../components/AlertBanner';
+import { resendVerificationRequest } from '../api/authApi';
 
 /**
  * ONE login page/form for both roles. The backend decides whether the
@@ -13,10 +14,15 @@ import AlertBanner from '../components/AlertBanner';
 function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const justVerified = location.state?.verified === true;
 
-  const [form, setForm] = useState({ email: '', password: '' });
+  const [form, setForm] = useState({ email: location.state?.email || '', password: '' });
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // Phase 15: set when the backend says this account's email isn't verified.
+  const [unverifiedEmail, setUnverifiedEmail] = useState('');
+  const [resending, setResending] = useState(false);
 
   const handleChange = (e) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -25,6 +31,7 @@ function LoginPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setFormError('');
+    setUnverifiedEmail('');
     setSubmitting(true);
 
     try {
@@ -33,11 +40,40 @@ function LoginPage() {
         replace: true,
       });
     } catch (err) {
-      setFormError(
-        err.response?.data?.error?.message || 'Something went wrong. Please try again.'
-      );
+      if (err.response?.data?.error?.code === 'EMAIL_NOT_VERIFIED') {
+        setUnverifiedEmail(form.email.trim().toLowerCase());
+      } else {
+        setFormError(
+          err.response?.data?.error?.message || 'Something went wrong. Please try again.'
+        );
+      }
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const goToVerify = (extraState = {}) =>
+    navigate('/verify-email', { state: { email: unverifiedEmail, ...extraState } });
+
+  const handleResend = async () => {
+    setResending(true);
+    setFormError('');
+    try {
+      await resendVerificationRequest({ email: unverifiedEmail });
+      goToVerify({ from: 'login-resend', resendCooldownSeconds: 60 });
+    } catch (err) {
+      const retryAfter = parseInt(
+        err.response?.data?.error?.retryAfterSeconds ?? err.response?.headers?.['retry-after'],
+        10
+      );
+      if (err.response?.status === 429 && Number.isFinite(retryAfter)) {
+        // A code was sent very recently — go enter it, with the countdown running.
+        goToVerify({ resendCooldownSeconds: retryAfter });
+        return;
+      }
+      setFormError(err.response?.data?.error?.message || 'Could not send a new code. Please try again.');
+    } finally {
+      setResending(false);
     }
   };
 
@@ -54,7 +90,37 @@ function LoginPage() {
           className="bg-white rounded-2xl shadow-md p-6 space-y-4"
           noValidate
         >
+          {justVerified && !unverifiedEmail && !formError && (
+            <AlertBanner type="success" message="Email verified. You can now sign in." />
+          )}
           <AlertBanner message={formError} />
+
+          {unverifiedEmail && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3" role="alert">
+              <p className="text-sm font-medium text-amber-800">Your email is not verified.</p>
+              <p className="text-xs text-amber-700 mt-1">
+                Enter the 6-digit code we emailed you, or request a new one.
+              </p>
+              <div className="flex gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={() => goToVerify()}
+                  className="flex-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium py-2 rounded-lg transition-colors"
+                >
+                  Verify Email
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResend}
+                  disabled={resending}
+                  className="flex-1 border border-amber-300 bg-white hover:bg-amber-100 text-amber-800 text-xs
+                    font-medium py-2 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {resending ? 'Sending...' : 'Resend Code'}
+                </button>
+              </div>
+            </div>
+          )}
 
           <FormField
             label="Email"

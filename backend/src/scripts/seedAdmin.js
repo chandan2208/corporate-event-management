@@ -50,6 +50,9 @@ const run = async () => {
     email,
     passwordHash,
     role: 'admin',
+    // Phase 15: admins are created only by this trusted, server-side
+    // script, never through public registration, so they're verified.
+    emailVerified: true,
   });
 
   console.log('Admin account created successfully:');

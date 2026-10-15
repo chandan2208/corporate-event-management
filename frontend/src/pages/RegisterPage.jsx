@@ -38,8 +38,19 @@ function RegisterPage() {
     setSubmitting(true);
 
     try {
-      await register(form);
-      navigate('/employee/dashboard', { replace: true });
+      // Phase 15: account is created unverified; continue to the code page.
+      // The full email travels only in in-memory router state (never the URL).
+      const { data } = await register(form);
+      navigate('/verify-email', {
+        replace: true,
+        state: {
+          email: form.email.trim().toLowerCase(),
+          maskedEmail: data?.email,
+          emailSent: data?.emailSent,
+          resendCooldownSeconds: data?.resendCooldownSeconds,
+          from: 'register',
+        },
+      });
     } catch (err) {
       const apiError = err.response?.data?.error;
 

@@ -7,6 +7,7 @@ import RoleRoute from './routes/RoleRoute';
 import RootRedirect from './pages/RootRedirect';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import VerifyEmailPage from './pages/VerifyEmailPage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
 import EmployeeDashboardPage from './pages/EmployeeDashboardPage';
 import HealthCheckPage from './pages/HealthCheckPage';
@@ -28,6 +29,7 @@ import CertificateVerifyPage from './pages/CertificateVerifyPage';
  *
  * "/"                              -> redirects based on auth state
  * "/login", "/register"            -> public
+ * "/verify-email"                  -> public (Phase 15 email verification)
  * "/system/health"                 -> public diagnostics page from Phase 1
  *
  * Admin (requires login AND role=admin):
@@ -51,6 +53,7 @@ function App() {
             <Route path="/" element={<RootRedirect />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/verify-email" element={<VerifyEmailPage />} />
             <Route path="/system/health" element={<HealthCheckPage />} />
             <Route path="/verify/certificate/:verificationToken" element={<CertificateVerifyPage />} />
 

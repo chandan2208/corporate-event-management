@@ -26,4 +26,29 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
-module.exports = { registerSchema, loginSchema };
+/**
+ * Phase 15 schemas. `.strict()` rejects any unexpected keys, every field
+ * must be a string (numbers/arrays/objects are rejected), and lengths are
+ * bounded so oversized input never reaches the database.
+ */
+const verificationEmailField = z
+  .string()
+  .trim()
+  .max(254, 'Email is too long')
+  .toLowerCase()
+  .email('Invalid email address');
+
+const verifyEmailSchema = z
+  .object({
+    email: verificationEmailField,
+    code: z.string().regex(/^\d{6}$/, 'Verification code must be exactly 6 digits'),
+  })
+  .strict();
+
+const resendVerificationSchema = z
+  .object({
+    email: verificationEmailField,
+  })
+  .strict();
+
+module.exports = { registerSchema, loginSchema, verifyEmailSchema, resendVerificationSchema };

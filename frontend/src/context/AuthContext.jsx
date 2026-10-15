@@ -48,12 +48,9 @@ export function AuthProvider({ children }) {
     return loggedInUser;
   }, []);
 
-  const register = useCallback(async (payload) => {
-    const { user: newUser, accessToken } = await registerRequest(payload);
-    setAccessToken(accessToken);
-    setUser(newUser);
-    return newUser;
-  }, []);
+  // Phase 15: registering creates an UNVERIFIED account and emails a code.
+  // It does not sign the user in — no token is returned or stored here.
+  const register = useCallback(async (payload) => registerRequest(payload), []);
 
   const logout = useCallback(async () => {
     try {

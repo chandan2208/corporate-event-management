@@ -66,7 +66,10 @@ axiosClient.interceptors.response.use(
     const isAuthEndpoint =
       originalRequest.url?.includes('/auth/login') ||
       originalRequest.url?.includes('/auth/register') ||
-      originalRequest.url?.includes('/auth/refresh-token');
+      originalRequest.url?.includes('/auth/refresh-token') ||
+      // Phase 15: a 401 from these means "wrong code", not "session expired".
+      originalRequest.url?.includes('/auth/verify-email') ||
+      originalRequest.url?.includes('/auth/resend-verification');
 
     if (status === 401 && !originalRequest._retry && !isAuthEndpoint) {
       originalRequest._retry = true;
