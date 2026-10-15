@@ -117,3 +117,45 @@ now caught immediately and explained by the new environment validation
 - [ ] Production smoke test against real URLs: **NOT TESTED — ENVIRONMENT LIMITATION**
 
 **Overall: DEPLOYMENT-READY, NOT CLOUD-DEPLOYED.**
+
+---
+
+## Render + Supabase setup (October 2026)
+
+The original Render free PostgreSQL instance expired and was suspended by
+Render (free databases expire after 30 days), which is why production
+`/api/health` reported `database: "disconnected"` and logins returned 500.
+Production now uses Supabase PostgreSQL.
+
+**Backend web service (Render)**
+
+| Setting | Value |
+|---|---|
+| Root Directory | `backend` |
+| Build Command | `npm ci && npm run migrate:up && npm run seed:admin` (seed is idempotent — does nothing if the admin exists) |
+| Start Command | `npm start` |
+| Health Check Path | `/api/health` (returns 503 when the database is unreachable) |
+
+**Environment variables (Render → Environment).** Never commit these.
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | Supabase **Session pooler** URI (Connect → Session pooler, port 5432) + `?sslmode=no-verify`. Render has no IPv6, so the direct `db.<ref>.supabase.co` host does not work. |
+| `DB_POOL_MAX` | `5` (Supabase free-tier pooler limit) |
+| `NODE_ENV` | `production` |
+| `CLIENT_URL` | `https://corporate-event-management-1.onrender.com` (comma-separate extra origins) |
+| `JWT_SECRET`, `JWT_REFRESH_SECRET` | long random strings |
+| `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | initial admin account |
+
+`DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD` are ignored when
+`DATABASE_URL` is set and can be removed.
+
+**Row Level Security.** Migration `1700000000010` enables RLS (no policies)
+on every table, so Supabase's Data API (anon/authenticated keys) can read
+nothing. The backend connects as the table owner and is unaffected.
+
+**Verify after deploy**
+
+```bash
+curl -i https://corporate-event-management.onrender.com/api/health   # 200, database: connected
+```
