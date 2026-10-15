@@ -4,6 +4,7 @@ const { generateQrToken } = require('../utils/qrToken');
 const { generateCertificateNumber } = require('../utils/certificateNumber');
 const { generateQrDataUrl } = require('./qr.service');
 const { generateCertificatePdfBuffer } = require('./certificatePdf');
+const { getPrimaryClientUrl } = require('../config/clientOrigins');
 
 const ELIGIBLE_STATUSES = ['CHECKED_IN', 'COMPLETED'];
 const ORGANIZER_NAME = 'Corporate Event Management';
@@ -19,7 +20,7 @@ const toPublicCertificate = (row) => ({
   event: row.event_title
     ? { title: row.event_title, eventDate: row.event_date, venue: row.event_venue }
     : undefined,
-  verificationUrl: `${process.env.CLIENT_URL}/verify/certificate/${row.verification_token}`,
+  verificationUrl: `${getPrimaryClientUrl()}/verify/certificate/${row.verification_token}`,
 });
 
 const toAdminPublicCertificate = (row) => ({
@@ -221,7 +222,7 @@ const verifyByToken = async (token) => {
  */
 const buildCertificatePdf = async (certificate) => {
   const qrDataUrl = await generateQrDataUrl(
-    `${process.env.CLIENT_URL}/verify/certificate/${certificate.verification_token}`
+    `${getPrimaryClientUrl()}/verify/certificate/${certificate.verification_token}`
   );
 
   return generateCertificatePdfBuffer({

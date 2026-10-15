@@ -13,6 +13,7 @@ const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
 
 const apiRoutes = require('./routes');
+const { getAllowedOrigins } = require('./config/clientOrigins');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -40,10 +41,12 @@ app.use(helmet());
 
 // Allow the frontend (running on a different port/origin) to call this API.
 // `credentials: true` is required so the browser will send/receive the
-// httpOnly refresh-token cookie across origins.
+// httpOnly refresh-token cookie across origins. CLIENT_URL may list several
+// comma-separated origins (see config/clientOrigins.js); only an exact
+// match is reflected back, any other origin gets no CORS headers at all.
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: getAllowedOrigins(),
     credentials: true,
   })
 );

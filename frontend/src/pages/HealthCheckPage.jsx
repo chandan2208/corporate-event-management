@@ -19,6 +19,13 @@ function HealthCheckPage() {
         setStatus('ok');
       })
       .catch((error) => {
+        // 503 = backend is up but its database is not; the body still
+        // carries the status details, so show them instead of "unreachable".
+        if (error.response?.status === 503 && error.response.data?.data) {
+          setData(error.response.data.data);
+          setStatus('ok');
+          return;
+        }
         setErrorMessage(
           error.response?.data?.error?.message || error.message || 'Unknown error'
         );

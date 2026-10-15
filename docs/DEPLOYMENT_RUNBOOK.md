@@ -132,3 +132,62 @@ now caught immediately and explained by the new environment validation
 - [ ] Production smoke test against real URLs: **NOT TESTED — ENVIRONMENT LIMITATION**
 
 **Overall: DEPLOYMENT-READY, NOT CLOUD-DEPLOYED.**
+
+---
+
+## Render + Supabase setup (October 2026)
+
+The original Render free PostgreSQL instance expired and was suspended by
+Render (free databases expire after 30 days), which is why production
+`/api/health` reported `database: "disconnected"` and logins returned 500.
+Production now uses Supabase PostgreSQL.
+
+**Backend web service (Render)**
+
+| Setting | Value |
+|---|---|
+| Root Directory | `backend` |
+| Build Command | First deploy: `npm ci && npm run migrate:up && npm run seed:admin`. After the admin account exists: `npm ci && npm run migrate:up` (then remove `ADMIN_PASSWORD` from Render). |
+| Start Command | `npm start` |
+| Health Check Path | `/api/health` (returns 503 when the database is unreachable) |
+
+**Environment variables (Render → Environment).** Never commit these.
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | Supabase **Session pooler** URI (Connect → Session pooler, port 5432) + `?sslmode=verify-full&sslrootcert=certs/supabase-prod-ca-2021.crt`. Render has no IPv6, so the direct `db.<ref>.supabase.co` host does not work; the 6543 transaction pooler breaks node-pg-migrate's session advisory lock. Percent-encode special characters in the password. |
+| `DB_POOL_MAX` | `5` (Nano pooler pool size is 15 per user+db; leaves room for build-time migrate/seed while the old instance still runs) |
+| `NODE_ENV` | `production` |
+| `CLIENT_URL` | `https://corporate-event-management-1.onrender.com` (comma-separate extra origins) |
+| `JWT_SECRET`, `JWT_REFRESH_SECRET` | long random strings |
+| `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | initial admin account |
+
+`DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD` are ignored when
+`DATABASE_URL` is set and can be removed.
+
+**Row Level Security.** Migration `1700000000010` enables RLS (no policies)
+on every table, so Supabase's Data API (anon/authenticated keys) can read
+nothing. The backend connects as the table owner and is unaffected.
+
+**Verify after deploy**
+
+```bash
+curl -i https://corporate-event-management.onrender.com/api/health   # 200, database: connected
+```
+
+**Migration strategy.** Render's Pre-Deploy Command is paid-only, so
+migrations run in the build. This is safe for this project because
+node-pg-migrate (v9) by default: runs all pending migrations in ONE
+transaction (any failure rolls everything back and fails the build, so
+the previous deploy keeps serving), holds a Postgres advisory lock (two
+concurrent builds cannot migrate at once), records applied migrations in
+`pgmigrations` (re-runs are no-ops) and checks ordering. Caveat: a
+successful build applies the schema change before the new code goes live,
+so future migrations must stay backward-compatible with the running
+version (add columns/tables first, remove them in a later release).
+
+**TLS.** `backend/certs/supabase-prod-ca-2021.crt` is Supabase's public
+root CA (downloaded from Database Settings → SSL configuration; SHA-256
+80:70:25:AD:…:E6:CA:FA, valid to 2031-04-26). With `sslmode=verify-full`
+both the app and the migration tool verify the pooler certificate and
+hostname. Also enable **Enforce SSL on incoming connections** in Supabase.
