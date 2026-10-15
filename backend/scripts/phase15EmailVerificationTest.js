@@ -756,7 +756,11 @@ async function run() {
   // ======================================================================
   {
     const env = { ...process.env, NODE_ENV: 'production', PORT: String(API_PORT + 1) };
-    ['EMAIL_PROVIDER', 'EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_FROM', 'EMAIL_API_KEY', 'EMAIL_USER', 'EMAIL_PASSWORD'].forEach((k) => delete env[k]);
+    // Blank rather than delete: the child's dotenv would otherwise refill
+    // these from a populated backend/.env (dotenv never overrides set keys).
+    ['EMAIL_PROVIDER', 'EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_FROM', 'EMAIL_API_KEY', 'EMAIL_USER', 'EMAIL_PASSWORD'].forEach((k) => {
+      env[k] = '';
+    });
     const out = spawnSync(process.execPath, ['server.js'], { cwd: BACKEND_DIR, env, encoding: 'utf8', timeout: 15000 });
     check('Config', 'production refuses to start without email config', out.status === 1 && /email delivery is not configured/.test(out.stderr), `${out.status} ${out.stderr.slice(0, 200)}`);
   }
